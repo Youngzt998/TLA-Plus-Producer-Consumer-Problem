@@ -1,11 +1,4 @@
 ----------------------------- MODULE Problem_1 -----------------------------
-EXTENDS Integers
-
-CONSTANT N
-VARIABLE Producer
-VARIABLE Consumer
-VARIABLE count
-
 (*
     void producer () {
         while (true) {
@@ -38,7 +31,12 @@ VARIABLE count
         }
     }
 *)
+EXTENDS Integers
 
+CONSTANT N
+VARIABLE Producer
+VARIABLE Consumer
+VARIABLE count
 Init == 
     /\ Producer = "W"
     /\ Consumer = "W"
@@ -70,6 +68,7 @@ Producer_to_AS ==
        /\ Consumer' = Consumer
        /\ count' = count
     \/ /\ Consumer = "BW"
+       \* Be waken up
        /\ Producer' = IF Producer = "S" 
                       THEN "AS"
                       ELSE Producer
@@ -118,6 +117,7 @@ Consumer_to_AS ==
       /\ Producer' = Producer
       /\ count' = count
    \/ /\ Producer = "BW"
+       \* Be waken up
       /\ Consumer' = IF Consumer = "S" 
                      THEN "AS"
                      ELSE Consumer
@@ -175,7 +175,7 @@ NoException2==
 
 =============================================================================
 \* Modification History
-\* Last modified Thu Jun 18 15:48:33 CST 2020 by youngster
+\* Last modified Fri Jun 19 04:25:28 CST 2020 by youngster
 \* Created Wed Jun 17 13:24:42 CST 2020 by youngster
 
 

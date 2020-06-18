@@ -2,7 +2,9 @@
 
 
 
-#### Problem_1: 含死锁
+
+
+#### Problem_1: 死锁和异常捕获
 
 #### 1. 问题建模
 
@@ -407,6 +409,222 @@ NoException2==
 ]
 >>
 ```
+
+
+
+
+
+#### Problem_2: Semaphore
+
+##### 1. 问题建模
+
+###### 1.1. Semaphore
+
+semaphore的原理参照以下代码:
+
+```C
+void down (semaphore &x) {
+    if (x == 0)
+        sleep_on(x);
+    else 
+        x.value = x.value - 1;
+}
+
+void up (semaphore &x) {
+    if(sleep_num(x)>0)
+        wake_up(x);
+    else 
+        x.value = x.value + 1;
+}
+```
+
+根据semaphore的原理，一个down操作和一个up操作会造成两种不同的状态转换，所以对Semaphore的建模如下：
+
+一个semaphore用一个record类型来表示，内容包含其值的大小(用value表示)和在此semaphore上休眠的线程的数量(用sleep表示);
+
+down(&x)在TLA+中被分解为down(x)和sleep(x); up(&x)被分解为up(x)和wake(x)
+
+- down(x)状态转换成功当且仅当当前x的值大于0； 如果x的值为0，则在x上休眠，即只能进行sleep(x)的状态转换；
+
+- up(x) 状态转换成功当且仅当当前x上休眠线程的值为0；如果有线程在上面休眠，则会唤醒线程，即进行wake(x) 转换, 减去一个在休眠的线程
+
+```TLA
+(******************** down ********************)
+down(x) ==
+    \/ /\ x.value > 0
+       /\ x' = [x EXCEPT !.value = x.value - 1]
+
+sleep(x)==
+    \/ /\ x.value = 0
+       /\ x' = [x EXCEPT !.sleep = x.sleep + 1]
+
+
+(********************* up *********************)
+up(x) ==
+    \/ /\ x.sleep = 0
+       /\ x' = [x EXCEPT !.value = x.value + 1]
+       
+wake(x) ==
+    \/ /\ x.sleep > 0
+       /\ x' = [x EXCEPT !.sleep = x.sleep - 1]
+```
+
+
+
+
+
+###### 1.2. Consumer & Producer 
+
+Consumer 和 Producer 的原理参照以下代码(produce/consumer/insert/remove已省略):
+
+```C
+semaphore mutex=1, empty=N, full=0;
+
+void producer () {
+    while (true) {
+        /* U2: Up_2 */
+        down(&empty); /* S1: Sleep_1 */
+        	/* D1: Down_1 */
+        	down(&mutex); /* S2: Sleep_2 */
+        		/* D2: Down_2 */
+        	up(&mutex); 
+        	/* U1: Up_1 */
+        up(&full);
+        /* U2: Up_2 */
+    }
+}
+
+void consumer() {
+    while(true) {
+        /* U2: Up_2 */
+        down(&full); /* S1: Sleep_1 */
+        	/* D1: Down_1 */
+        	down(&mutex); /* S2: Sleep_2 */
+        		/* D2: Down_2 */
+        	up(&mutex); 
+        	/* U1: Up_1 */
+        up(&empty); 
+        /* U2: Up_2 */
+    }
+}
+```
+
+上述代码的注释为两种线程的可能的状态，其中
+
+- S1表示Producer线程正在empty上休眠/Consumer线程正在full上休眠
+
+- S2表示Producer/Consumer线程正在mutex上休眠
+
+- D1表示Producer结束down(&empty)后的状态[可能是将empty的值减一，也可能从休眠状态被唤醒]/
+
+  Consumer结束down(&full)后的状态[可能是将full的值减一，也可能从休眠状态被唤醒]
+
+- D2表示Producer/Consumer结束down(&mutex)后的状态[可能是将mutex的值减一，也可能从休眠状态被唤醒]
+
+- U1表示Producer/Consumer结束up(&mutex)后的状态[可能是将mutex的值加一，也可能是唤醒mutex上的休眠线程]
+
+- U2表示Producer结束up(&full)后的状态[可能是将full的值加一，也可能唤醒full上的休眠线程]/
+
+  Consumer结束up(&empty)后的状态[可能是将empty的值加一，也可能唤醒empty上的休眠线程]
+
+
+
+建模线程为一个record类型 [type, state], 其中 type \in  {"Producer", "Consumer"},  state \in {"U1", "U2", "S1", "S2", "D1", "D2"}
+
+初始的时候，设定线程的状态都处于"U2"，即第一条语句执行之前，同时设定各个Semaphore的值:
+
+```
+Init ==
+    /\ mutex = [value |-> 1, sleep |-> 0]
+    /\ empty = [value |-> N, sleep |-> 0]
+    /\ full = [value |-> 0, sleep |-> 0]
+    /\ ProState = [x \in Producers |-> [type |-> "Producer", state |-> "U2"]]
+    /\ ConState = [x \in Consumers |-> [type |-> "Consumer", state |-> "U2"]]
+```
+
+
+
+在程序运行过程中，每个线程都有8种可能的状态转换如下(从上到下):
+
+```
+ U1 --- U2
+        |  \
+        |   S1
+        |  /
+        D1 
+        |  \
+        |   S2
+        |  /
+        D2
+        |
+        U1 --- U2
+```
+
+在TLA+中可以表示为：
+
+```TLA+
+Next ==
+    \E t \in Producers \cup Consumers:
+        \/ U2_to_D1(t)
+        \/ U2_to_S1(t)
+        \/ S1_to_D1(t)
+        \/ D1_to_D2(t)
+        \/ D1_to_S2(t)
+        \/ S2_to_D2(t)
+        \/ D2_to_U1(t)
+        \/ U1_to_U2(t)
+```
+
+每一种转换的具体实现详见代码以及注释;
+
+
+
+在运行过程中，检查类型是否合法，以及三个semaphore的值是否正常:
+
+```TLA+
+\* Cardinality(S) == number of elements in set S
+TypeOK == 
+    /\ \A x \in threads: State(x).state \in StateTypes
+    /\ \A x \in threads: State(x).type \in ThreadTypes
+    /\ mutex.value \in 0..1
+    /\ mutex.sleep \in 0..Cardinality(threads)
+    /\ empty.value \in 0..N
+    /\ empty.sleep \in 0..Cardinality(threads)
+    /\ full.value \in 0..N
+    /\ full.sleep \in 0..Cardinality(threads)
+```
+
+各个Semaphore上sleep线程的数量小于集合总数可以说明死锁没有出现；
+
+在只有一个Producer和一个Consumer的时候，也可以定义NoDeadlock如下来表示死锁没有出现:
+
+```
+Deadlock ==
+    \A x \in threads: State(x).state \in {"S1", "S2"}
+
+NoDeadlock ==
+    ~ Deadlock
+```
+
+
+
+
+
+##### 2. 模型运行
+
+在TLA+ Toolbox中，设定初始值N=100, 且有三个Producer和三个Consumer
+
+![image-20200619041132377](/home/youngster/Project/TLA-Plus-Producer-Consumer-Problem/Readme_ch.assets/image-20200619041132377.png)
+
+
+
+同时设置Invariant为TypeOK和NoDeadlock [在多个Producer和Consumer的时候，NoDeadlock只能判断是否出现全局死锁，但不能用来证明是否有某两个线程相互局部死锁， 但在各只有一个线程的时候是可以作为证明的， 和运行过程中的死锁判断也等效]
+
+
+
+最终性质检验的结果如下，没有出现异常和死锁
+
+![image-20200619041751359](/home/youngster/Project/TLA-Plus-Producer-Consumer-Problem/Readme_ch.assets/image-20200619041751359.png)
 
 
 
